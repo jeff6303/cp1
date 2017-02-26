@@ -130,6 +130,22 @@ function getMonthlyData($transactionList, $ignoreCC = false, $ignoreMerchantList
 	return $agregateData;
 }
 
+// function to calculate the average spend/income for a month and add it into the monthly details
+function injectAverageData($monthData) {
+	$sumIncome = 0;
+	$sumSpent = 0;
+	$count = 0;
+	foreach($monthData['MonthSummaryData'] as $date => $details) {
+		$count++;
+		$sumIncome += $details['income'];
+		$sumSpent += $details['spent'];
+	}
+	
+	$monthData['MonthSummaryData']['average']['income'] = round($sumIncome / $count, 2);
+	$monthData['MonthSummaryData']['average']['spent'] = round($sumSpent / $count, 2);
+	return $monthData;
+}
+
 // We just display as a json object.  Asusmption is that this would be returned to the client and then consumed to a 
 // more readible form.
 function print_month_data($monthlyData) {
@@ -176,6 +192,7 @@ if($responseObj['error'] && $responseObj['error'] == "no-error") {
 		}
 		$monthData = getMonthlyData($fullTransactionList, $ignoreCC, $merchantExcludeList);
 		
+		$monthData = injectAverageData($monthData);
 		print_month_data($monthData);
 	}	
 } else {
