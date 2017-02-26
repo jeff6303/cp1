@@ -57,7 +57,7 @@ function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC 
 		// check if we should filter the transaction (currently ba
 		if(!$ignoreMerchantList || empty($ignoreMerchantList) || !in_array($transactionData['merchant'], $ignoreMerchantList)) {
 			
-			if(!isset($agregateData[$key])) {
+			if(!isset($agregateData[$yrMonthKey])) {
 				// I intentionally am leaving the income/spent without the $ sign for the return as this would make it simplier to
 				// interpret and use from the client without needing to parse the $ out.
 				$monthData = array(
