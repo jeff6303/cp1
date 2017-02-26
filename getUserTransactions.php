@@ -1,6 +1,6 @@
 <?php
 
-//small call to just keep info we use to return back for cc transaction	
+//small class to just keep info we use to return back for cc transaction	
 class ccTransaction {
 	public $id;
 	public $merchant;
@@ -8,6 +8,8 @@ class ccTransaction {
 	public $transactionTime;
 }
 
+//class to make curl easier to adapt and modify once set up.  Should be more full-funcitonal and wrap
+//the open/close functionality, but for now this works.
 class curlWrapper {
 	public $optArray;
 	public $curlHandle;
@@ -16,12 +18,15 @@ class curlWrapper {
 
 date_default_timezone_set('UTC');
 
+// Data for user info.  Would look to expand this to make it flexible via login to get user info/token/ect.
 $DEFAULT_USER_ID = 1110590645;
 $DEFAULT_AUTH_TOKEN = 'C811FEE4B14573EBC14DA2079748DEE3';
 $DEFAULT_APP_TOKEN = 'AppTokenForInterview';
 
+// Default info for no donuts.  That said, we can exclude transactions from any merchant these are just the ones called out.
 $IGNORE_DONUTS_MERCHANT_NAMES = array('Krispy Kreme Donuts', 'DUNKIN #336784');
 
+// Sets up a curl wrapper and inits the handle.
 function setupCurl($uid, $userToken, $apiToken) {
 	$myCurl = new curlWrapper();
 	$curl_handle=curl_init();
@@ -44,6 +49,7 @@ function setupCurl($uid, $userToken, $apiToken) {
 	return $myCurl;
 }
 
+// preforms a post call to curl wrapper.  Currently doesnt check for valid curl we should expand this.
 function curlPost($curlWrapper, $url, $additionalPostFields = null) {
 	$curl_handle = $curlWrapper->curlHandle;
 	curl_setopt($curl_handle, CURLOPT_URL, $url);
@@ -56,6 +62,8 @@ function curlPost($curlWrapper, $url, $additionalPostFields = null) {
 	return $response;
 }
 
+// Main function to obtain the monthly summary data and prepare the return.
+// the return contains the month/year summary for income/spent.  It also can contain cc transactions we exclude
 function getMonthlyData($transactionList, $ignoreCC = false, $ignoreMerchantList = null) {
 	$agregateData = array();
 	$fullTransactions = array();
@@ -88,8 +96,9 @@ function getMonthlyData($transactionList, $ignoreCC = false, $ignoreMerchantList
 				$agregateData[$yrMonthKey]['income'] += round($val / 10000, 2);
 			}
 		} 
-		// For now we just exclude the transaction, but we may want to keep track and report these back to the user?
 		
+		// We exclude the transaction and add it to the return.  Right now we are just maintaining one of the transactions
+		// but we may want to report both back to the user.
 		if($ignoreCC) {
 			//check if there is a transaction + or - 1 day with same val, if so assume its CC payment
 			if(isset($fullTransactions[$yrMonthKey][$day][$val * -1]) ||
@@ -121,10 +130,14 @@ function getMonthlyData($transactionList, $ignoreCC = false, $ignoreMerchantList
 	return $agregateData;
 }
 
+// We just display as a json object.  Asusmption is that this would be returned to the client and then consumed to a 
+// more readible form.
 function print_month_data($monthlyData) {
 	echo json_encode($monthlyData);
 }
 
+// Main logic flow here
+// check for the flags
 if(in_array('--ignore-donuts', $argv)) {
 	$ignoreDonuts = true;
 }
@@ -141,6 +154,7 @@ $curlWrap = setupCurl($DEFAULT_USER_ID, $DEFAULT_AUTH_TOKEN, $DEFAULT_APP_TOKEN)
 $response = curlPost($curlWrap, 'https://2016.api.levelmoney.com/api/v2/core/get-all-transactions');
 $responseObj = json_decode($response, true);
 
+// ensure the response is valid
 if($responseObj['error'] && $responseObj['error'] == "no-error") {
 	if($responseObj['transactions']) {
 		$fullTransactionList = $responseObj['transactions'];
@@ -165,7 +179,7 @@ if($responseObj['error'] && $responseObj['error'] == "no-error") {
 		print_month_data($monthData);
 	}	
 } else {
-	echo "NO!";
+	echo(json_encode(array('error'=>'invalid response for get-all-transactions', 'error-details'=>$responseObj['error'])));
 }
 curl_close($curlWrap->curlHandle);
 
