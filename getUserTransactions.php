@@ -1,4 +1,11 @@
 <?php
+	
+class ccTransaction {
+	public $id;
+	public $merchant;
+	public $val;
+	public $transactionTime;
+}
 
 date_default_timezone_set('UTC');
 
@@ -33,18 +40,23 @@ function curlPost($curl_handle, $url, $additionalPostFields = null) {
 	return $response;
 }
 
-function getMonthlyData($transactionList, $ignoreMerchantList = null) {
+function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC = true) {
 	$agregateData = array();
+	$fullTransactions = array();
+	$ccTransactions = array();
 	foreach($transactionList as $transactionData) {
+		$transactionTime = $transactionData['transaction-time'];
+		$val = $transactionData['amount'];
+			
+		$ts = strtotime($transactionTime);
+		$yr = date('Y', $ts);
+		$month = date('n', $ts);
+		$day = date('j', $ts);
+		$yrMonthKey = $yr . '-' . $month;
+		
 		// check if we should filter the transaction (currently ba
 		if(!$ignoreMerchantList || empty($ignoreMerchantList) || !in_array($transactionData['merchant'], $ignoreMerchantList)) {
-			$val = $transactionData['amount'];
-			$transactionTime = $transactionData['transaction-time'];
-			$ts = strtotime($transactionTime);
-			$yr = date('Y', $ts);
-			$month = date('n', $ts);
-			$day = date('j', $ts);
-			$key = $yr . '-' . $month;
+			
 			if(!isset($agregateData[$key])) {
 				// I intentionally am leaving the income/spent without the $ sign for the return as this would make it simplier to
 				// interpret and use from the client without needing to parse the $ out.
@@ -52,16 +64,44 @@ function getMonthlyData($transactionList, $ignoreMerchantList = null) {
 					"income" => 0,
 					"spent" => 0
 				);
-				$agregateData[$key] = $monthData;
+				$agregateData[$yrMonthKey] = $monthData;
 			}
 			if($val < 0) {
-				$agregateData[$key]['spent'] += round($val / 10000, 2) * -1;
+				$agregateData[$yrMonthKey]['spent'] += round($val / 10000, 2) * -1;
 			} else {
-				$agregateData[$key]['income'] += round($val / 10000, 2);
+				$agregateData[$yrMonthKey]['income'] += round($val / 10000, 2);
 			}
 		} else {
 			echo 'ignore donuts transaction\r\n';
 		}
+		if($ignoreCC) {
+			//check if there is a transaction + or - 1 day with same val, if so assume its CC payment
+			if(isset($fullTransactions[$yrMonthKey][$day][$val * -1]) ||
+			isset($fullTransactions[$yrMonthKey][$day - 1][$val * -1]) ||
+			isset($fullTransactions[$yrMonthKey][$day + 1][$val * -1])) {
+				$ccTransaction = new ccTransaction();
+				$ccTransaction->id = $transactionData['trasaction-id'];
+				$ccTransaction->merchant = $transactionData['merchant'];
+				$ccTransaction->val = round($val / 10000, 2);
+				$ccTransaction->transactionTime = $transactionTime;
+				
+				//since we have already added this amt into both catagories, just take it back out then track it for output.
+				$rawVal = abs(round($val / 10000, 2));
+				$agregateData[$yrMonthKey]['spent'] -= $rawVal ;
+				$agregateData[$yrMonthKey]['income'] -= $rawVal;
+				array_push($ccTransactions, $ccTransaction);
+			} 
+			//Keep track of the charge so we can check if another transaction occurs with same amt later.
+			else {
+				$fullTransactions[$yrMonthKey][$day][$val] = true;
+			}
+		}
+	}
+	var_dump($ccTransactions);
+	var_dump($agregateData);
+	$agregateData = array('MonthSummaryData'=>$agregateData);
+	if($ignoreCC) {
+		$agregateData['ccTransactionExcludeData'] = $ccTransactions;
 	}
 	return $agregateData;
 }
