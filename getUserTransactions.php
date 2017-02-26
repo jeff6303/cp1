@@ -5,8 +5,8 @@ date_default_timezone_set('UTC');
 $DEFAULT_USER_ID = 1110590645;
 $DEFAULT_AUTH_TOKEN = 'C811FEE4B14573EBC14DA2079748DEE3';
 $DEFAULT_APP_TOKEN = 'AppTokenForInterview';
-// It asks for precision to the cent but we store more precision.  Leaving the option to return more precision if desired.
-$DEFAULT_ROUND_PRECISION = 2;
+
+$IGNORE_DONUTS_MERCHANT_NAMES = array('Krispy Kreme Donuts', 'DUNKIN #336784');
 
 function setupCurl($uid, $userToken, $apiToken) {
 	$curl_handle=curl_init();
@@ -26,35 +26,41 @@ function setupCurl($uid, $userToken, $apiToken) {
 	return $curl_handle;
 }
 
-function curlPost($curl_handle, $url) {
+function curlPost($curl_handle, $url, $additionalPostFields = null) {
+	
 	curl_setopt($curl_handle, CURLOPT_URL, $url);
 	$response = curl_exec($curl_handle);
 	return $response;
 }
 
-function getMonthlyData($transactionList) {
+function getMonthlyData($transactionList, $ignoreMerchantList = null) {
 	$agregateData = array();
 	foreach($transactionList as $transactionData) {
-		$val = $transactionData['amount'];
-		$transactionTime = $transactionData['transaction-time'];
-		$ts = strtotime($transactionTime);
-		$yr = date('Y', $ts);
-		$month = date('n', $ts);
-		$day = date('j', $ts);
-		$key = $yr . '-' . $month;
-		if(!isset($agregateData[$key])) {
-			// I intentionally am leaving the income/spent without the $ sign for the return as this would make it simplier to
-			// interpret and use from the client without needing to parse the $ out.
-			$monthData = array(
-				"income" => 0,
-				"spent" => 0
-			);
-			$agregateData[$key] = $monthData;
-		}
-		if($val < 0) {
-			$agregateData[$key]['spent'] += round($val / 10000, $DEFAULT_ROUND_PRECISION) * -1;
+		// check if we should filter the transaction (currently ba
+		if(!$ignoreMerchantList || empty($ignoreMerchantList) || !in_array($transactionData['merchant'], $ignoreMerchantList)) {
+			$val = $transactionData['amount'];
+			$transactionTime = $transactionData['transaction-time'];
+			$ts = strtotime($transactionTime);
+			$yr = date('Y', $ts);
+			$month = date('n', $ts);
+			$day = date('j', $ts);
+			$key = $yr . '-' . $month;
+			if(!isset($agregateData[$key])) {
+				// I intentionally am leaving the income/spent without the $ sign for the return as this would make it simplier to
+				// interpret and use from the client without needing to parse the $ out.
+				$monthData = array(
+					"income" => 0,
+					"spent" => 0
+				);
+				$agregateData[$key] = $monthData;
+			}
+			if($val < 0) {
+				$agregateData[$key]['spent'] += round($val / 10000, 2) * -1;
+			} else {
+				$agregateData[$key]['income'] += round($val / 10000, 2);
+			}
 		} else {
-			$agregateData[$key]['income'] += round($val / 10000, $DEFAULT_ROUND_PRECISION);
+			echo 'ignore donuts transaction\r\n';
 		}
 	}
 	return $agregateData;
@@ -72,13 +78,23 @@ $responseObj = json_decode($response, true);
 if($responseObj['error'] && $responseObj['error'] == "no-error") {
 	if($responseObj['transactions']) {
 		$fullTransactionList = $responseObj['transactions'];
-		$monthData = getMonthlyData($fullTransactionList);
+		if($useCrystalBall) {
+			$response = curlPost($curl_handle, 'https://2016.api.levelmoney.com/api/v2/core/projected-transactions-for-month');
+			$responseObj = json_decode($response, true);
+		}
+
+		if($ignoreDonuts) {
+			$merchantExcludeList = $IGNORE_DONUTS_MERCHANT_NAMES;
+		} else {
+			$merchantExcludeList = null;
+		}
+		$monthData = getMonthlyData($fullTransactionList, $merchantExcludeList);
+		
 		print_month_data($monthData);
 	}	
 } else {
 	echo "NO!";
 }
-
 curl_close($curl_handle);
 
 ?>
