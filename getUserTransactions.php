@@ -40,7 +40,7 @@ function curlPost($curl_handle, $url, $additionalPostFields = null) {
 	return $response;
 }
 
-function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC = false) {
+function getMonthlyData($transactionList, $ignoreCC = false, $ignoreMerchantList = null) {
 	$agregateData = array();
 	$fullTransactions = array();
 	$ccTransactions = array();
@@ -54,7 +54,7 @@ function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC 
 		$day = date('j', $ts);
 		$yrMonthKey = $yr . '-' . $month;
 		
-		// check if we should filter the transaction (currently ba
+		// check if we should filter the transaction
 		if(!$ignoreMerchantList || empty($ignoreMerchantList) || !in_array($transactionData['merchant'], $ignoreMerchantList)) {
 			
 			if(!isset($agregateData[$yrMonthKey])) {
@@ -71,9 +71,9 @@ function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC 
 			} else {
 				$agregateData[$yrMonthKey]['income'] += round($val / 10000, 2);
 			}
-		} else {
-			echo 'ignore donuts transaction\r\n';
-		}
+		} 
+		// For now we just exclude the transaction, but we may want to keep track and report these back to the user?
+		
 		if($ignoreCC) {
 			//check if there is a transaction + or - 1 day with same val, if so assume its CC payment
 			if(isset($fullTransactions[$yrMonthKey][$day][$val * -1]) ||
@@ -97,8 +97,7 @@ function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC 
 			}
 		}
 	}
-	var_dump($ccTransactions);
-	var_dump($agregateData);
+
 	$agregateData = array('MonthSummaryData'=>$agregateData);
 	if($ignoreCC) {
 		$agregateData['ccTransactionExcludeData'] = $ccTransactions;
@@ -108,6 +107,14 @@ function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC 
 
 function print_month_data($monthlyData) {
 	echo json_encode($monthlyData);
+}
+
+if(in_array('--ignore-donuts', $argv)) {
+	$ignoreDonuts = true;
+}
+
+if(in_array('--ignore-cc-payments', $argv)) {
+	$ignoreCC = true;
 }
 
 $curl_handle = setupCurl($DEFAULT_USER_ID, $DEFAULT_AUTH_TOKEN, $DEFAULT_APP_TOKEN);
@@ -128,7 +135,7 @@ if($responseObj['error'] && $responseObj['error'] == "no-error") {
 		} else {
 			$merchantExcludeList = null;
 		}
-		$monthData = getMonthlyData($fullTransactionList, $merchantExcludeList);
+		$monthData = getMonthlyData($fullTransactionList, $ignoreCC, $merchantExcludeList);
 		
 		print_month_data($monthData);
 	}	
