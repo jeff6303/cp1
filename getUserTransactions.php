@@ -40,7 +40,7 @@ function curlPost($curl_handle, $url, $additionalPostFields = null) {
 	return $response;
 }
 
-function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC = true) {
+function getMonthlyData($transactionList, $ignoreMerchantList = null, $ignoreCC = false) {
 	$agregateData = array();
 	$fullTransactions = array();
 	$ccTransactions = array();
