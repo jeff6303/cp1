@@ -1,10 +1,17 @@
 <?php
-	
+
+//small call to just keep info we use to return back for cc transaction	
 class ccTransaction {
 	public $id;
 	public $merchant;
 	public $val;
 	public $transactionTime;
+}
+
+class curlWrapper {
+	public $optArray;
+	public $curlHandle;
+	public $defaultPostFields;
 }
 
 date_default_timezone_set('UTC');
@@ -16,6 +23,7 @@ $DEFAULT_APP_TOKEN = 'AppTokenForInterview';
 $IGNORE_DONUTS_MERCHANT_NAMES = array('Krispy Kreme Donuts', 'DUNKIN #336784');
 
 function setupCurl($uid, $userToken, $apiToken) {
+	$myCurl = new curlWrapper();
 	$curl_handle=curl_init();
 	$headr = array('Accept: application/json', 'Content-Type: application/json');
 	$postArgs = array(
@@ -23,19 +31,27 @@ function setupCurl($uid, $userToken, $apiToken) {
 		'token' => $userToken,
 		'api-token' => $apiToken
 	);
+	$myCurl->defaultPostFields = array('args'=>$postArgs);
 	$optArray = array(
 		CURLOPT_HTTPHEADER => $headr,
 		CURLOPT_POST => 1,
-		CURLOPT_POSTFIELDS => json_encode(array('args'=>$postArgs)),
+		CURLOPT_POSTFIELDS => json_encode($myCurl->defaultPostFields),
 		CURLOPT_RETURNTRANSFER => true
 	);
 	curl_setopt_array($curl_handle, $optArray);
-	return $curl_handle;
+	$myCurl->optArray = $optArray;
+	$myCurl->curlHandle = $curl_handle;
+	return $myCurl;
 }
 
-function curlPost($curl_handle, $url, $additionalPostFields = null) {
-	
+function curlPost($curlWrapper, $url, $additionalPostFields = null) {
+	$curl_handle = $curlWrapper->curlHandle;
 	curl_setopt($curl_handle, CURLOPT_URL, $url);
+	if($additionalPostFields) {
+		$mergePost = array_merge($curlWrapper->defaultPostFields, $additionalPostFields);
+		curl_setopt($curl_handle, CURLOPT_POSTFIELDS, json_encode($mergePost));
+	}
+
 	$response = curl_exec($curl_handle);
 	return $response;
 }
@@ -116,18 +132,27 @@ if(in_array('--ignore-donuts', $argv)) {
 if(in_array('--ignore-cc-payments', $argv)) {
 	$ignoreCC = true;
 }
+if(in_array('--crystal-ball', $argv)) {
+	$useCrystal = true;
+}
 
-$curl_handle = setupCurl($DEFAULT_USER_ID, $DEFAULT_AUTH_TOKEN, $DEFAULT_APP_TOKEN);
+$curlWrap = setupCurl($DEFAULT_USER_ID, $DEFAULT_AUTH_TOKEN, $DEFAULT_APP_TOKEN);
 	
-$response = curlPost($curl_handle, 'https://2016.api.levelmoney.com/api/v2/core/get-all-transactions');
+$response = curlPost($curlWrap, 'https://2016.api.levelmoney.com/api/v2/core/get-all-transactions');
 $responseObj = json_decode($response, true);
 
 if($responseObj['error'] && $responseObj['error'] == "no-error") {
 	if($responseObj['transactions']) {
 		$fullTransactionList = $responseObj['transactions'];
-		if($useCrystalBall) {
-			$response = curlPost($curl_handle, 'https://2016.api.levelmoney.com/api/v2/core/projected-transactions-for-month');
+		if($useCrystal) {
+			$time = time();
+			$curYr = intval(date("Y"));
+			$curMonth = intval(date("n"));
+			$adPostInfo = array('year'=>$curYr, 'month'=>$curMonth);
+			$response = curlPost($curlWrap, 'https://2016.api.levelmoney.com/api/v2/core/projected-transactions-for-month', $adPostInfo);
 			$responseObj = json_decode($response, true);
+			$additionalTransactionData = $responseObj['transactions'];
+			$fullTransactionList = array_merge($fullTransactionList, $additionalTransactionData);
 		}
 
 		if($ignoreDonuts) {
@@ -142,6 +167,6 @@ if($responseObj['error'] && $responseObj['error'] == "no-error") {
 } else {
 	echo "NO!";
 }
-curl_close($curl_handle);
+curl_close($curlWrap->curlHandle);
 
 ?>
