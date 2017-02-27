@@ -1,5 +1,7 @@
 <?php
 
+require 'curlWrapper.php';
+
 //small class to just keep info we use to return back for cc transaction	
 class ccTransaction {
 	public $id;
@@ -7,16 +9,6 @@ class ccTransaction {
 	public $val;
 	public $transactionTime;
 }
-
-//class to make curl easier to adapt and modify once set up.  Should be more full-funcitonal and wrap
-//the open/close functionality, but for now this works.
-class curlWrapper {
-	public $optArray;
-	public $curlHandle;
-	public $defaultPostFields;
-}
-
-date_default_timezone_set('UTC');
 
 // Data for user info.  Would look to expand this to make it flexible via login to get user info/token/ect.
 $DEFAULT_USER_ID = 1110590645;
@@ -26,7 +18,8 @@ $DEFAULT_APP_TOKEN = 'AppTokenForInterview';
 // Default info for no donuts.  That said, we can exclude transactions from any merchant these are just the ones called out.
 $IGNORE_DONUTS_MERCHANT_NAMES = array('Krispy Kreme Donuts', 'DUNKIN #336784');
 
-// Sets up a curl wrapper and inits the handle.
+// Sets up a curl wrapper and inits the handle.  We probably would want to make this generic & part of
+// curlWrapper but for this excercise keeping this in transactions.
 function setupCurl($uid, $userToken, $apiToken) {
 	$myCurl = new curlWrapper();
 	$curl_handle=curl_init();
@@ -47,19 +40,6 @@ function setupCurl($uid, $userToken, $apiToken) {
 	$myCurl->optArray = $optArray;
 	$myCurl->curlHandle = $curl_handle;
 	return $myCurl;
-}
-
-// preforms a post call to curl wrapper.  Currently doesnt check for valid curl we should expand this.
-function curlPost($curlWrapper, $url, $additionalPostFields = null) {
-	$curl_handle = $curlWrapper->curlHandle;
-	curl_setopt($curl_handle, CURLOPT_URL, $url);
-	if($additionalPostFields) {
-		$mergePost = array_merge($curlWrapper->defaultPostFields, $additionalPostFields);
-		curl_setopt($curl_handle, CURLOPT_POSTFIELDS, json_encode($mergePost));
-	}
-
-	$response = curl_exec($curl_handle);
-	return $response;
 }
 
 // Main function to obtain the monthly summary data and prepare the return.
@@ -152,7 +132,12 @@ function print_month_data($monthlyData) {
 	echo json_encode($monthlyData);
 }
 
+function validResponseStructure($responseObj) {
+	return $responseObj['error'] && $responseObj['error'] == "no-error" && $responseObj['transactions'];
+}
+
 // Main logic flow here
+date_default_timezone_set('UTC');
 // check for the flags
 if(in_array('--ignore-donuts', $argv)) {
 	$ignoreDonuts = true;
@@ -167,35 +152,47 @@ if(in_array('--crystal-ball', $argv)) {
 
 $curlWrap = setupCurl($DEFAULT_USER_ID, $DEFAULT_AUTH_TOKEN, $DEFAULT_APP_TOKEN);
 	
-$response = curlPost($curlWrap, 'https://2016.api.levelmoney.com/api/v2/core/get-all-transactions');
+$response = $curlWrap->curlPost('https://2016.api.levelmoney.com/api/v2/core/get-all-transactions');
 $responseObj = json_decode($response, true);
 
 // ensure the response is valid
-if($responseObj['error'] && $responseObj['error'] == "no-error") {
-	if($responseObj['transactions']) {
-		$fullTransactionList = $responseObj['transactions'];
-		if($useCrystal) {
-			$time = time();
-			$curYr = intval(date("Y"));
-			$curMonth = intval(date("n"));
-			$adPostInfo = array('year'=>$curYr, 'month'=>$curMonth);
-			$response = curlPost($curlWrap, 'https://2016.api.levelmoney.com/api/v2/core/projected-transactions-for-month', $adPostInfo);
-			$responseObj = json_decode($response, true);
+if(validResponseStructure($responseObj)) {
+	$fullTransactionList = $responseObj['transactions'];
+	if($useCrystal) {
+		$time = time();
+		$curYr = intval(date("Y"));
+		$curMonth = intval(date("n"));
+		$adPostInfo = array('year'=>$curYr, 'month'=>$curMonth);
+		$response = $curlWrap->curlPost('https://2016.api.levelmoney.com/api/v2/core/projected-transactions-for-month', $adPostInfo);
+		$responseObj = json_decode($response, true);
+		if(validResponseStructure($responseObj)) {
 			$additionalTransactionData = $responseObj['transactions'];
 			$fullTransactionList = array_merge($fullTransactionList, $additionalTransactionData);
+		} 
+		// if we dont get a good response from crystalBall continue on with the data just dont include crystalBall 
+		// and note this in the return
+		else {
+			$crystalBallFailed = true;
+			$networkErrorDetails = $responseObj['error'];
 		}
+	}
+			
 
-		if($ignoreDonuts) {
-			$merchantExcludeList = $IGNORE_DONUTS_MERCHANT_NAMES;
-		} else {
-			$merchantExcludeList = null;
-		}
-		$monthData = getMonthlyData($fullTransactionList, $ignoreCC, $merchantExcludeList);
-		
-		$monthData = injectAverageData($monthData);
-		print_month_data($monthData);
-	}	
-} else {
+	if($ignoreDonuts) {
+		$merchantExcludeList = $IGNORE_DONUTS_MERCHANT_NAMES;
+	} else {
+		$merchantExcludeList = null;
+	}
+	$monthData = getMonthlyData($fullTransactionList, $ignoreCC, $merchantExcludeList);
+	
+	$monthData = injectAverageData($monthData);
+	if($crystalBallFailed) {
+		$monthData['error'] = 'failed to get crystal ball data, only have initial data';
+		$monthData['error-details'] = $networkErrorDetails;
+	}
+	print_month_data($monthData);
+}	
+else {
 	echo(json_encode(array('error'=>'invalid response for get-all-transactions', 'error-details'=>$responseObj['error'])));
 }
 curl_close($curlWrap->curlHandle);
